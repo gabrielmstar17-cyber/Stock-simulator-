@@ -45,34 +45,56 @@ def log_trade(action, stock, qty, price):
         "price":price
     })
 
-def buy_max(stock):
+def buy_stock(stock, amount=None):
+    """Buy a specific stock, or all stocks if stock=='ALL'."""
+    if stock == "ALL":
+        # Buy max for all stocks with available cash
+        for s in st.session_state.stocks.keys():
+            buy_stock(s)
+        return
     price = st.session_state.stocks[stock]['price']
-    qty = int(st.session_state.cash // price)
+    qty = int(st.session_state.cash // price) if amount is None else int(amount // price)
     if qty <= 0:
-        st.warning("Not enough cash to buy any shares!")
+        st.warning(f"Not enough cash to buy {stock}!")
         return
     st.session_state.cash -= qty * price
     st.session_state.portfolio[stock] = st.session_state.portfolio.get(stock,0) + qty
-    log_trade("BUY",stock,qty,price)
+    log_trade("BUY", stock, qty, price)
     st.success(f"Bought {qty} shares of {stock}.")
 
-def sell_all(stock):
+def sell_stock(stock):
+    """Sell a specific stock, or all stocks if stock=='ALL'."""
+    if stock == "ALL":
+        for s in list(st.session_state.portfolio.keys()):
+            sell_stock(s)
+        return
     if stock not in st.session_state.portfolio or st.session_state.portfolio[stock] <= 0:
-        st.warning("No shares to sell!")
+        st.warning(f"No shares of {stock} to sell!")
         return
     qty = st.session_state.portfolio[stock]
     price = st.session_state.stocks[stock]['price']
     st.session_state.cash += qty * price
     st.session_state.portfolio[stock] = 0
-    log_trade("SELL",stock,qty,price)
+    log_trade("SELL", stock, qty, price)
     st.success(f"Sold all {qty} shares of {stock}.")
+
+def add_cash(amount):
+    if amount > 0:
+        st.session_state.cash += amount
+        st.success(f"Added ${amount:.2f} to your account!")
 
 # ------------------ App Layout ------------------
 update_prices()
 
 st.title("📈 Advanced Stock Simulator")
 
-# Dashboard metrics
+# ------------------ Add Money ------------------
+st.subheader("💰 Add Cash to Account")
+added_cash = st.number_input("Amount to add:", min_value=0.0, step=100.0, value=0.0)
+if st.button("Add Cash"):
+    add_cash(added_cash)
+
+# ------------------ Portfolio Dashboard ------------------
 st.subheader("Portfolio Dashboard")
 total_pf = total_value()
 total_cash = st.session_state.cash
@@ -82,7 +104,7 @@ col1.metric("Cash", f"${total_cash:,.2f}")
 col2.metric("Portfolio Value", f"${total_pf:,.2f}")
 col3.metric("Total P/L", f"${total_pl:,.2f}", f"{total_pl/10000*100:.2f}%")
 
-# Stock table with colored price changes
+# ------------------ Stock Table ------------------
 st.subheader("Stock Prices")
 stock_data = []
 for s, info in st.session_state.stocks.items():
@@ -97,17 +119,18 @@ for s, info in st.session_state.stocks.items():
     })
 st.table(pd.DataFrame(stock_data))
 
-# Trade buttons
+# ------------------ Quick Trades ------------------
 st.subheader("Quick Trades")
-cols = st.columns(len(st.session_state.stocks))
-for i, s in enumerate(st.session_state.stocks.keys()):
+cols = st.columns(len(st.session_state.stocks) + 1)  # extra for "ALL"
+all_stocks = list(st.session_state.stocks.keys()) + ["ALL"]
+for i, s in enumerate(all_stocks):
     with cols[i]:
-        if st.button(f"Buy Max {s}"):
-            buy_max(s)
-        if st.button(f"Sell All {s}"):
-            sell_all(s)
+        if st.button(f"Buy {s}"):
+            buy_stock(s)
+        if st.button(f"Sell {s}"):
+            sell_stock(s)
 
-# Portfolio table
+# ------------------ Portfolio Table ------------------
 st.subheader("Your Portfolio")
 pf_data=[]
 for s,q in st.session_state.portfolio.items():
@@ -125,7 +148,7 @@ for s,q in st.session_state.portfolio.items():
     })
 st.table(pd.DataFrame(pf_data))
 
-# Portfolio chart (safe)
+# ------------------ Portfolio Chart ------------------
 st.session_state.portfolio_history.append({"time":datetime.now(),"value":total_value()})
 hist_df = pd.DataFrame(st.session_state.portfolio_history)
 if not hist_df.empty and "time" in hist_df.columns:
@@ -134,6 +157,6 @@ if not hist_df.empty and "time" in hist_df.columns:
 else:
     st.info("Portfolio chart will appear after your first trade.")
 
-# Trade history
+# ------------------ Trade History ------------------
 st.subheader("Trade History")
 st.table(pd.DataFrame(st.session_state.trade_history))
