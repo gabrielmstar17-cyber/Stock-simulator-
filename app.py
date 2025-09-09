@@ -2,7 +2,6 @@ import streamlit as st
 import random
 import pandas as pd
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 
 # Auto-refresh every 1 second
 
