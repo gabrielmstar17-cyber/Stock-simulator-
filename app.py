@@ -8,14 +8,16 @@ from datetime import datetime
 ALPHA_API_KEY = "7UPR0L5QPPL0CYC0"
 
 # ---------- Load stock list ----------
-@st.cache
+@st.cache_data
 def load_stocks():
-    # NASDAQ-listed CSV
     nasdaq_url = "https://datahub.io/core/nasdaq-listings/r/nasdaq-listed.csv"
     df = pd.read_csv(nasdaq_url)
-    # Standardize columns
-    df = df[['Symbol','Name']]
-    return df
+    # Rename columns if needed
+    if 'Company Name' in df.columns:
+        df = df.rename(columns={'Company Name':'Name'})
+    if 'Symbol' not in df.columns or 'Name' not in df.columns:
+        st.error("CSV does not contain required Symbol or Name columns")
+    return df[['Symbol','Name']]
 
 stocks_df = load_stocks()
 
