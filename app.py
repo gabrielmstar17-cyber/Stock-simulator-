@@ -137,3 +137,6 @@ st.line_chart(hist_df.rename(columns={"time":"index"}).set_index("time")["value"
 # Trade history
 st.subheader("Trade History")
 st.table(pd.DataFrame(st.session_state.trade_history))
+streamlit
+pandas
+streamlit-autorefresh
