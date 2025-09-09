@@ -45,15 +45,9 @@ def log_trade(action, stock, qty, price):
         "price":price
     })
 
-def buy_stock(stock, amount=None):
-    """Buy a specific stock, or all stocks if stock=='ALL'."""
-    if stock == "ALL":
-        # Buy max for all stocks with available cash
-        for s in st.session_state.stocks.keys():
-            buy_stock(s)
-        return
+def buy_stock(stock, cash_amount=None):
     price = st.session_state.stocks[stock]['price']
-    qty = int(st.session_state.cash // price) if amount is None else int(amount // price)
+    qty = int(st.session_state.cash // price) if cash_amount is None else int(cash_amount // price)
     if qty <= 0:
         st.warning(f"Not enough cash to buy {stock}!")
         return
@@ -63,11 +57,6 @@ def buy_stock(stock, amount=None):
     st.success(f"Bought {qty} shares of {stock}.")
 
 def sell_stock(stock):
-    """Sell a specific stock, or all stocks if stock=='ALL'."""
-    if stock == "ALL":
-        for s in list(st.session_state.portfolio.keys()):
-            sell_stock(s)
-        return
     if stock not in st.session_state.portfolio or st.session_state.portfolio[stock] <= 0:
         st.warning(f"No shares of {stock} to sell!")
         return
@@ -85,10 +74,9 @@ def add_cash(amount):
 
 # ------------------ App Layout ------------------
 update_prices()
-
 st.title("📈 Advanced Stock Simulator")
 
-# ------------------ Add Money ------------------
+# ------------------ Add Cash ------------------
 st.subheader("💰 Add Cash to Account")
 added_cash = st.number_input("Amount to add:", min_value=0.0, step=100.0, value=0.0)
 if st.button("Add Cash"):
@@ -119,15 +107,29 @@ for s, info in st.session_state.stocks.items():
     })
 st.table(pd.DataFrame(stock_data))
 
-# ------------------ Quick Trades ------------------
-st.subheader("Quick Trades")
-cols = st.columns(len(st.session_state.stocks) + 1)  # extra for "ALL"
-all_stocks = list(st.session_state.stocks.keys()) + ["ALL"]
-for i, s in enumerate(all_stocks):
-    with cols[i]:
-        if st.button(f"Buy {s}"):
+# ------------------ Buy Specific Stocks ------------------
+st.subheader("Trade Selected Stocks")
+selected_stocks = st.multiselect("Select stocks to trade:", options=list(st.session_state.stocks.keys()), default=list(st.session_state.stocks.keys()))
+cash_per_stock = st.number_input("Cash to spend per selected stock:", min_value=0.0, step=100.0, value=0.0)
+
+if st.button("Buy Selected Stocks"):
+    for s in selected_stocks:
+        buy_stock(s, cash_amount=cash_per_stock)
+
+if st.button("Sell Selected Stocks"):
+    for s in selected_stocks:
+        sell_stock(s)
+
+# ------------------ Quick Trade Buttons ------------------
+st.subheader("Quick Trade: Buy/Sell All Stocks")
+cols = st.columns(2)
+with cols[0]:
+    if st.button("Buy Max All Stocks"):
+        for s in st.session_state.stocks.keys():
             buy_stock(s)
-        if st.button(f"Sell {s}"):
+with cols[1]:
+    if st.button("Sell All Stocks"):
+        for s in list(st.session_state.portfolio.keys()):
             sell_stock(s)
 
 # ------------------ Portfolio Table ------------------
