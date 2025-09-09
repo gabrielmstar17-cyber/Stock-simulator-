@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 
 # ------------------ Configuration ------------------
@@ -28,8 +28,8 @@ def get_quote(symbol):
         "symbol": symbol,
         "apikey": ALPHA_API_KEY
     }
-    r = requests.get(url, params=params).json()
     try:
+        r = requests.get(url, params=params).json()
         price = float(r["Global Quote"]["05. price"])
         return price
     except:
@@ -43,20 +43,23 @@ def search_symbol(keyword):
         "keywords": keyword,
         "apikey": ALPHA_API_KEY
     }
-    r = requests.get(url, params=params).json()
-    matches = r.get("bestMatches", [])
-    results = []
-    for m in matches:
-        results.append({
-            "symbol": m.get("1. symbol"),
-            "name": m.get("2. name")
-        })
-    return results
+    try:
+        r = requests.get(url, params=params).json()
+        matches = r.get("bestMatches", [])
+        results = []
+        for m in matches:
+            results.append({
+                "symbol": m.get("1. symbol"),
+                "name": m.get("2. name")
+            })
+        return results
+    except:
+        return []
 
 # ------------------ Trading Functions ------------------
 def buy_stock(symbol, cash_amount):
     price = get_quote(symbol)
-    if not price:
+    if price is None:
         st.error("Unable to fetch price.")
         return
     shares = int(cash_amount // price)
@@ -70,7 +73,7 @@ def buy_stock(symbol, cash_amount):
         "action": "BUY",
         "stock": symbol,
         "shares": shares,
-        "price": round(price,2)
+        "price": round(price, 2)
     })
     st.success(f"Bought {shares} shares of {symbol} at ${price:.2f}")
 
@@ -80,6 +83,9 @@ def sell_stock(symbol):
         st.warning("No shares to sell.")
         return
     price = get_quote(symbol)
+    if price is None:
+        st.error("Unable to fetch price.")
+        return
     st.session_state.cash += shares * price
     st.session_state.portfolio[symbol] = 0
     st.session_state.trade_history.append({
@@ -87,7 +93,7 @@ def sell_stock(symbol):
         "action": "SELL",
         "stock": symbol,
         "shares": shares,
-        "price": round(price,2)
+        "price": round(price, 2)
     })
     st.success(f"Sold {shares} shares of {symbol} at ${price:.2f}")
 
@@ -123,7 +129,7 @@ if keyword:
             search_container.write(f"**{r['symbol']}** - {r['name']}")
             if search_container.button(f"Add {r['symbol']}", key=f"add_{r['symbol']}"):
                 price = get_quote(r['symbol'])
-                if price:
+                if price is not None:
                     st.session_state.watchlist[r['symbol']] = {"name": r['name'], "price": price}
                     st.success(f"Added {r['symbol']} at ${price:.2f}")
                 else:
@@ -137,7 +143,10 @@ if st.session_state.watchlist:
     for symbol, info in st.session_state.watchlist.items():
         price = get_quote(symbol)
         col1, col2, col3 = st.columns([3,2,2])
-        col1.markdown(f"**{symbol}** - {info['name']}  |  Current Price: ${price:.2f}")
+        if price is not None:
+            col1.markdown(f"**{symbol}** - {info['name']}  |  Current Price: ${price:.2f}")
+        else:
+            col1.markdown(f"**{symbol}** - {info['name']}  |  Current Price: N/A")
         buy_amount = col2.number_input(f"Cash to buy {symbol}", min_value=0.0, step=100.0, key=f"buy_{symbol}")
         if col2.button(f"Buy {symbol}", key=f"buy_btn_{symbol}"):
             buy_stock(symbol, buy_amount)
@@ -154,9 +163,12 @@ for symbol, shares in st.session_state.portfolio.items():
     if shares <= 0:
         continue
     price = get_quote(symbol)
-    value = shares * price
-    total_value += value
-    portfolio_data.append({"Stock": symbol, "Shares": shares, "Price": round(price,2), "Value": round(value,2)})
+    if price is not None:
+        value = shares * price
+        total_value += value
+        portfolio_data.append({"Stock": symbol, "Shares": shares, "Price": round(price,2), "Value": round(value,2)})
+    else:
+        portfolio_data.append({"Stock": symbol, "Shares": shares, "Price": "N/A", "Value": "N/A"})
 
 if portfolio_data:
     st.table(pd.DataFrame(portfolio_data))
