@@ -9,7 +9,7 @@ st.set_page_config(page_title="Stock Simulator", page_icon="📈", layout="wide"
 
 # ------------------ Session State ------------------
 if "cash" not in st.session_state:
-    st.session_state.cash = 10000.0
+    st.session_state.cash = 0.0  # Starting cash set to 0
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = {}  # symbol -> shares
 if "watchlist" not in st.session_state:
@@ -116,24 +116,33 @@ Welcome to the Stock Simulator! Here's a quick guide:
 st.sidebar.header("💰 Account")
 st.sidebar.metric("Available Cash", f"${st.session_state.cash:,.2f}")
 add_cash = st.sidebar.number_input("Add cash", min_value=0.0, step=100.0)
-if st.sidebar.button("Add Cash"):
+if st.sidebar.button("Add Cash", key="add_cash_btn"):
     st.session_state.cash += add_cash
     st.success(f"Added ${add_cash:.2f} to your balance.")
 
 # --- Sidebar: Search & Add Stocks ---
 st.sidebar.header("🔍 Search Stocks")
 query = st.sidebar.text_input("Company name or ticker")
+search_container = st.sidebar.container()
+
 if query:
     results = search_symbol(query)
     if results:
         for r in results[:5]:
-            st.sidebar.write(f"**{r['symbol']}** - {r['desc']}")
-            if st.sidebar.button(f"Add {r['symbol']}"):
+            search_container.write(f"**{r['symbol']}** - {r['desc']}")
+            if search_container.button(f"Add {r['symbol']}", key=f"add_{r['symbol']}"):
                 price = get_quote(r['symbol'])
                 st.session_state.watchlist[r['symbol']] = {"name": r['desc'], "price": price}
                 st.success(f"Added {r['symbol']} at ${price:.2f}")
     else:
-        st.sidebar.info("No results found.")
+        # Fallback: add directly by ticker
+        price = get_quote(query.upper())
+        if price:
+            if search_container.button(f"Add {query.upper()}", key=f"add_{query.upper()}"):
+                st.session_state.watchlist[query.upper()] = {"name": query.upper(), "price": price}
+                st.success(f"Added {query.upper()} at ${price:.2f}")
+        else:
+            search_container.info("No results found.")
 
 # --- Watchlist ---
 st.subheader("👀 Watchlist")
@@ -143,15 +152,14 @@ if st.session_state.watchlist:
         col1, col2, col3 = st.columns([3,2,2])
         col1.markdown(f"**{symbol}** - {info['name']}  |  Current Price: ${price:.2f}")
         buy_amount = col2.number_input(f"Cash to buy {symbol}", min_value=0.0, step=100.0, key=f"buy_{symbol}")
-        if col2.button(f"Buy {symbol}"):
+        if col2.button(f"Buy {symbol}", key=f"buy_btn_{symbol}"):
             buy_stock(symbol, buy_amount)
-        if col3.button(f"Sell All {symbol}"):
+        if col3.button(f"Sell All {symbol}", key=f"sell_btn_{symbol}"):
             sell_stock(symbol)
         # Stock price chart
         hist_df = get_historical_prices(symbol)
         if not hist_df.empty:
             st.line_chart(hist_df.set_index("Date")["Close"])
-
 else:
     st.info("No stocks in watchlist. Search and add stocks from the sidebar.")
 
