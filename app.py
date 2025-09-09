@@ -1,3 +1,28 @@
+import subprocess
+import sys
+
+# Automatically install missing packages
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Try importing, install if missing
+try:
+    import streamlit as st
+except ModuleNotFoundError:
+    install("streamlit")
+    import streamlit as st
+
+try:
+    import yfinance as yf
+except ModuleNotFoundError:
+    install("yfinance")
+    import yfinance as yf
+
+try:
+    import pandas as pd
+except ModuleNotFoundError:
+    install("pandas")
+    import pandas as pd
 import streamlit as st
 
 # ------------------ Check for yfinance ------------------
