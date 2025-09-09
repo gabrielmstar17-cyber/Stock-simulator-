@@ -1,6 +1,21 @@
 import streamlit as st
-import yfinance as yf
-import pandas as pd
+
+# ------------------ Check for yfinance ------------------
+try:
+    import yfinance as yf
+    import pandas as pd
+except ModuleNotFoundError:
+    st.error("""
+    ⚠️ Required library `yfinance` is not installed.
+    To fix this:
+    1. Locally: pip install yfinance pandas
+    2. Streamlit Cloud: add requirements.txt with:
+       streamlit
+       yfinance
+       pandas
+    """)
+    st.stop()
+
 from datetime import datetime
 
 # ------------------ Initialize Session State ------------------
@@ -9,42 +24,38 @@ if 'portfolio' not in st.session_state: st.session_state.portfolio = {}
 if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 if 'portfolio_history' not in st.session_state: st.session_state.portfolio_history = []
 
-# Predefined list of popular tickers (can be expanded to S&P 500)
-STOCK_LIST = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "NFLX", "META", "NVDA", "DIS", "BABA"]
+# ------------------ Combined Tickers ------------------
+SP500_TICKERS = ["AAPL","MSFT","GOOG","AMZN","TSLA","META","NVDA","DIS","BABA"] # Simplified for example
+NASDAQ_TICKERS = ["ZM","ROKU","DOCU","CRWD","SNOW","NET","PTON"] # Add full CSV for production
+DOW30_TICKERS = ["AAPL","MSFT","JNJ","V","WMT","DIS","HD","JPM","INTC","CVX"] # Example
+
+ALL_TICKERS = list(set(SP500_TICKERS + NASDAQ_TICKERS + DOW30_TICKERS))
 
 # ------------------ Functions ------------------
-def fetch_stock_data(tickers):
-    """Fetch real-time price and dividend yield for tickers"""
-    stock_data = {}
-    for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="1d")
-            price = hist['Close'].iloc[-1]
-            dividend_yield = stock.info.get('dividendYield') or 0
-            stock_data[ticker] = {
-                'price': round(price,2),
-                'prev_price': round(price,2),
-                'dividend_yield': dividend_yield
-            }
-        except:
-            continue
-    return stock_data
+def fetch_stock_price(ticker):
+    """Lazy load single stock price from yfinance"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1d")
+        price = hist['Close'].iloc[-1]
+        dividend_yield = stock.info.get('dividendYield') or 0
+        return {'price': round(price,2), 'prev_price': round(price,2), 'dividend_yield': dividend_yield}
+    except:
+        return None
 
 def update_prices():
-    """Update portfolio values and apply dividends"""
-    for s, info in st.session_state.stocks.items():
-        old_price = info['price']
-        stock = yf.Ticker(s)
-        hist = stock.history(period="1d")
-        info['prev_price'] = info['price']
-        info['price'] = round(hist['Close'].iloc[-1],2)
-        # dividends
-        if s in st.session_state.portfolio:
+    """Update all portfolio stock prices and apply dividends"""
+    for s in st.session_state.portfolio.keys():
+        data = fetch_stock_price(s)
+        if data:
+            old_price = st.session_state.stocks[s]['price']
+            st.session_state.stocks[s]['prev_price'] = old_price
+            st.session_state.stocks[s]['price'] = data['price']
+            # dividends
             qty = st.session_state.portfolio[s]
-            dividend_payment = qty * info['price'] * info['dividend_yield']
+            dividend_payment = qty * data['price'] * data['dividend_yield']
             st.session_state.cash += dividend_payment
-            info['dividends'] = info.get('dividends',0) + dividend_payment
+            st.session_state.stocks[s]['dividends'] = st.session_state.stocks[s].get('dividends',0)+dividend_payment
 
 def total_value():
     total = st.session_state.cash
@@ -62,6 +73,11 @@ def log_trade(action, stock, qty, price):
     })
 
 def buy_stock(stock, cash_amount=None):
+    if stock not in st.session_state.stocks:
+        st.session_state.stocks[stock] = fetch_stock_price(stock)
+        if not st.session_state.stocks[stock]:
+            st.warning(f"Cannot fetch data for {stock}")
+            return
     price = st.session_state.stocks[stock]['price']
     qty = int(st.session_state.cash // price) if cash_amount is None else int(cash_amount // price)
     if qty <= 0:
@@ -88,14 +104,14 @@ def add_cash(amount):
         st.session_state.cash += amount
         st.success(f"Added ${amount:.2f} to your account!")
 
-# ------------------ Load Stock Data ------------------
+# ------------------ Initialize stocks dict ------------------
 if 'stocks' not in st.session_state:
-    st.session_state.stocks = fetch_stock_data(STOCK_LIST)
+    st.session_state.stocks = {t: fetch_stock_price(t) for t in ALL_TICKERS if fetch_stock_price(t)}
 
 update_prices()
 
-# ------------------ App Layout ------------------
-st.title("📈 Realistic Stock Simulator")
+# ------------------ Streamlit UI ------------------
+st.title("📈 Realistic Stock Simulator - S&P, NASDAQ & Dow")
 
 # Add Cash
 st.subheader("💰 Add Cash")
@@ -113,59 +129,38 @@ col1.metric("Cash", f"${total_cash:,.2f}")
 col2.metric("Portfolio Value", f"${total_pf:,.2f}")
 col3.metric("Total P/L", f"${total_pl:,.2f}", f"{total_pl/10000*100:.2f}%")
 
-# Stock Prices
-st.subheader("Stock Prices")
-stock_data = []
-for s, info in st.session_state.stocks.items():
-    change = info['price'] - info['prev_price']
-    arrow = "▲" if change >=0 else "▼"
-    dividend_total = info.get('dividends',0)
-    stock_data.append({
-        "Stock": s,
-        "Price": f"{info['price']:.2f} {arrow}",
-        "Price Change": f"{change:+.2f}",
-        "Dividend Earned": round(dividend_total,2)
-    })
-st.table(pd.DataFrame(stock_data))
-
-# Search Stocks
-st.subheader("🔍 Search Existing Stocks")
-search_input = st.text_input("Enter a stock abbreviation to search:").upper()
+# Search & Trade
+st.subheader("🔍 Search Stocks")
+search_input = st.text_input("Enter a stock symbol:").upper()
 if search_input:
-    matches = [s for s in st.session_state.stocks.keys() if search_input in s]
+    matches = [s for s in ALL_TICKERS if search_input in s]
     if matches:
-        selected_stock = st.selectbox("Select stock to add to portfolio:", matches)
+        selected_stock = st.selectbox("Select stock to add:", matches)
         if st.button("Add Selected Stock"):
-            if selected_stock in st.session_state.portfolio:
-                st.warning(f"{selected_stock} is already in your portfolio!")
-            else:
+            if selected_stock not in st.session_state.portfolio:
                 st.session_state.portfolio[selected_stock] = 0
-                st.success(f"{selected_stock} added! You can now buy it.")
+                st.success(f"{selected_stock} added!")
     else:
-        st.info("No matches found in available stocks.")
+        st.info("No matches found.")
 
-# Buy/Sell Selected Stocks
 st.subheader("Trade Selected Stocks")
-selected_stocks = st.multiselect("Select stocks to trade:", options=list(st.session_state.portfolio.keys()), default=list(st.session_state.portfolio.keys()))
-cash_per_stock = st.number_input("Cash to spend per selected stock:", min_value=0.0, step=100.0, value=0.0)
-
-if st.button("Buy Selected Stocks"):
+selected_stocks = st.multiselect("Select stocks:", list(st.session_state.portfolio.keys()))
+cash_per_stock = st.number_input("Cash per stock:", min_value=0.0, step=100.0, value=0.0)
+if st.button("Buy Selected"):
     for s in selected_stocks:
-        buy_stock(s, cash_amount=cash_per_stock)
-
-if st.button("Sell Selected Stocks"):
+        buy_stock(s, cash_per_stock)
+if st.button("Sell Selected"):
     for s in selected_stocks:
         sell_stock(s)
 
-# Quick Trade Buttons
-st.subheader("Quick Trade: Buy/Sell All Stocks")
+st.subheader("Quick Buy/Sell All")
 cols = st.columns(2)
 with cols[0]:
-    if st.button("Buy Max All Stocks"):
+    if st.button("Buy Max All"):
         for s in st.session_state.portfolio.keys():
             buy_stock(s)
 with cols[1]:
-    if st.button("Sell All Stocks"):
+    if st.button("Sell All"):
         for s in list(st.session_state.portfolio.keys()):
             sell_stock(s)
 
@@ -178,13 +173,7 @@ for s,q in st.session_state.portfolio.items():
     avg_buy = sum(t['price']*t['quantity'] for t in st.session_state.trade_history if t['stock']==s and t['action']=="BUY") / max(sum(t['quantity'] for t in st.session_state.trade_history if t['stock']==s and t['action']=="BUY"),1)
     pl = (price-avg_buy)*q
     dividend_total = st.session_state.stocks[s].get('dividends',0)
-    pf_data.append({
-        "Stock":s,
-        "Shares":q,
-        "Value":round(val,2),
-        "P/L":round(pl,2),
-        "Dividend Earned":round(dividend_total,2)
-    })
+    pf_data.append({"Stock":s,"Shares":q,"Value":round(val,2),"P/L":round(pl,2),"Dividend Earned":round(dividend_total,2)})
 st.table(pd.DataFrame(pf_data))
 
 # Portfolio Chart
@@ -193,12 +182,7 @@ hist_df = pd.DataFrame(st.session_state.portfolio_history)
 if not hist_df.empty and "time" in hist_df.columns:
     hist_df = hist_df.set_index("time")
     st.line_chart(hist_df["value"])
-else:
-    st.info("Portfolio chart will appear after your first trade.")
 
 # Trade History
 st.subheader("Trade History")
 st.table(pd.DataFrame(st.session_state.trade_history))
-streamlit
-yfinance
-pandas
