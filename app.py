@@ -4,45 +4,54 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 # ------------------ Configuration ------------------
-FINNHUB_API_KEY = "7UPR0L5QPPL0CYC0"  # Replace with st.secrets for production
+ALPHA_API_KEY = "7UPR0L5QPPL0CYC0"  # Your Alpha Vantage key
 st.set_page_config(page_title="Stock Simulator", page_icon="📈", layout="wide")
 
 # ------------------ Session State ------------------
 if "cash" not in st.session_state:
-    st.session_state.cash = 0.0  # Starting cash set to 0
+    st.session_state.cash = 0.0
 if "portfolio" not in st.session_state:
-    st.session_state.portfolio = {}  # symbol -> shares
+    st.session_state.portfolio = {}
 if "watchlist" not in st.session_state:
-    st.session_state.watchlist = {}  # symbol -> {name, price}
+    st.session_state.watchlist = {}
 if "trade_history" not in st.session_state:
     st.session_state.trade_history = []
 if "portfolio_history" not in st.session_state:
-    st.session_state.portfolio_history = []  # total value over time
+    st.session_state.portfolio_history = []
 
-# ------------------ Finnhub Helpers ------------------
-BASE_URL = "https://finnhub.io/api/v1"
-
+# ------------------ Alpha Vantage Helpers ------------------
 def get_quote(symbol):
+    """Fetch the latest price for a stock"""
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "GLOBAL_QUOTE",
+        "symbol": symbol,
+        "apikey": ALPHA_API_KEY
+    }
+    r = requests.get(url, params=params).json()
     try:
-        r = requests.get(f"{BASE_URL}/quote?symbol={symbol}&token={FINNHUB_API_KEY}").json()
-        return r.get("c")
+        price = float(r["Global Quote"]["05. price"])
+        return price
     except:
         return None
 
-def get_historical_prices(symbol, days=30):
-    """Fetch last `days` daily closing prices"""
-    end = int(datetime.now().timestamp())
-    start = int((datetime.now() - timedelta(days=days)).timestamp())
-    try:
-        r = requests.get(
-            f"{BASE_URL}/stock/candle?symbol={symbol}&resolution=D&from={start}&to={end}&token={FINNHUB_API_KEY}"
-        ).json()
-        if r.get("s") == "ok":
-            return pd.DataFrame({"Date": pd.to_datetime(r["t"], unit='s'), "Close": r["c"]})
-        else:
-            return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+def search_symbol(keyword):
+    """Search for tickers using company name or symbol"""
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "SYMBOL_SEARCH",
+        "keywords": keyword,
+        "apikey": ALPHA_API_KEY
+    }
+    r = requests.get(url, params=params).json()
+    matches = r.get("bestMatches", [])
+    results = []
+    for m in matches:
+        results.append({
+            "symbol": m.get("1. symbol"),
+            "name": m.get("2. name")
+        })
+    return results
 
 # ------------------ Trading Functions ------------------
 def buy_stock(symbol, cash_amount):
@@ -82,26 +91,16 @@ def sell_stock(symbol):
     })
     st.success(f"Sold {shares} shares of {symbol} at ${price:.2f}")
 
-# ------------------ Subscription Placeholder ------------------
-def check_subscription(user_id="demo"):
-    """Replace with real subscription check for Stripe/PayPal"""
-    return True  # Change to False to simulate restricted access
-
-if not check_subscription():
-    st.warning("You need an active subscription to use this simulator.")
-    st.stop()
-
 # ------------------ UI ------------------
-st.title("📈 Finnhub Stock Simulator")
+st.title("📈 Alpha Vantage Stock Simulator")
 st.markdown("""
-Welcome to the Stock Simulator! Here's a quick guide:
+Welcome! Quick guide:
 
-1. **Sidebar - Account & Add Cash**: See your available cash and add more funds.
-2. **Sidebar - Add Stock by Ticker**: Enter a stock ticker (e.g., AAPL) to add to your watchlist.
-3. **Watchlist**: Buy or sell stocks with live quotes and view price charts.
-4. **Portfolio**: View your holdings and total portfolio value.
-5. **Trade History**: Track all your buys and sells.
-6. **Charts**: Visualize portfolio growth and stock price history.
+- **Sidebar - Add Cash**: Add funds to your account.
+- **Sidebar - Search Stocks**: Search by ticker or company name and add to watchlist.
+- **Watchlist**: Buy or sell stocks with live quotes.
+- **Portfolio**: View your holdings and total portfolio value.
+- **Trade History**: Track all trades.
 """)
 
 # --- Sidebar: Account & Add Cash ---
@@ -112,18 +111,25 @@ if st.sidebar.button("Add Cash", key="add_cash_btn"):
     st.session_state.cash += add_cash
     st.success(f"Added ${add_cash:.2f} to your balance.")
 
-# --- Sidebar: Add Stock by Ticker ---
-st.sidebar.header("🔍 Add Stock by Ticker")
-ticker = st.sidebar.text_input("Enter stock ticker (e.g., AAPL)")
-if ticker:
-    ticker = ticker.upper()
-    price = get_quote(ticker)
-    if price:
-        if st.sidebar.button(f"Add {ticker}", key=f"add_{ticker}"):
-            st.session_state.watchlist[ticker] = {"name": ticker, "price": price}
-            st.success(f"Added {ticker} at ${price:.2f}")
+# --- Sidebar: Search Stocks ---
+st.sidebar.header("🔍 Search Stocks")
+keyword = st.sidebar.text_input("Enter company name or ticker")
+search_container = st.sidebar.container()
+
+if keyword:
+    results = search_symbol(keyword)
+    if results:
+        for r in results[:5]:
+            search_container.write(f"**{r['symbol']}** - {r['name']}")
+            if search_container.button(f"Add {r['symbol']}", key=f"add_{r['symbol']}"):
+                price = get_quote(r['symbol'])
+                if price:
+                    st.session_state.watchlist[r['symbol']] = {"name": r['name'], "price": price}
+                    st.success(f"Added {r['symbol']} at ${price:.2f}")
+                else:
+                    st.warning(f"Unable to fetch price for {r['symbol']}.")
     else:
-        st.sidebar.warning("Ticker not found or no price data.")
+        search_container.info("No results found.")
 
 # --- Watchlist ---
 st.subheader("👀 Watchlist")
@@ -137,12 +143,8 @@ if st.session_state.watchlist:
             buy_stock(symbol, buy_amount)
         if col3.button(f"Sell All {symbol}", key=f"sell_btn_{symbol}"):
             sell_stock(symbol)
-        # Stock price chart
-        hist_df = get_historical_prices(symbol)
-        if not hist_df.empty:
-            st.line_chart(hist_df.set_index("Date")["Close"])
 else:
-    st.info("No stocks in watchlist. Add a stock using the sidebar ticker input.")
+    st.info("No stocks in watchlist. Search and add stocks from the sidebar.")
 
 # --- Portfolio ---
 st.subheader("💹 Portfolio")
@@ -159,12 +161,6 @@ for symbol, shares in st.session_state.portfolio.items():
 if portfolio_data:
     st.table(pd.DataFrame(portfolio_data))
 st.metric("Total Portfolio Value", f"${total_value:.2f}")
-
-# Portfolio value chart
-st.subheader("📊 Portfolio Value Over Time")
-st.session_state.portfolio_history.append({"time": datetime.now(), "value": total_value})
-history_df = pd.DataFrame(st.session_state.portfolio_history)
-st.line_chart(history_df.set_index("time")["value"])
 
 # --- Trade History ---
 st.subheader("🧾 Trade History")
