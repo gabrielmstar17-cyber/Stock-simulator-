@@ -1,11 +1,10 @@
+# ------------------ Auto-install dependencies ------------------
 import subprocess
 import sys
 
-# Automatically install missing packages
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-# Try importing, install if missing
 try:
     import streamlit as st
 except ModuleNotFoundError:
@@ -23,23 +22,6 @@ try:
 except ModuleNotFoundError:
     install("pandas")
     import pandas as pd
-import streamlit as st
-
-# ------------------ Check for yfinance ------------------
-try:
-    import yfinance as yf
-    import pandas as pd
-except ModuleNotFoundError:
-    st.error("""
-    ⚠️ Required library `yfinance` is not installed.
-    To fix this:
-    1. Locally: pip install yfinance pandas
-    2. Streamlit Cloud: add requirements.txt with:
-       streamlit
-       yfinance
-       pandas
-    """)
-    st.stop()
 
 from datetime import datetime
 
@@ -49,16 +31,15 @@ if 'portfolio' not in st.session_state: st.session_state.portfolio = {}
 if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 if 'portfolio_history' not in st.session_state: st.session_state.portfolio_history = []
 
-# ------------------ Combined Tickers ------------------
-SP500_TICKERS = ["AAPL","MSFT","GOOG","AMZN","TSLA","META","NVDA","DIS","BABA"] # Simplified for example
-NASDAQ_TICKERS = ["ZM","ROKU","DOCU","CRWD","SNOW","NET","PTON"] # Add full CSV for production
-DOW30_TICKERS = ["AAPL","MSFT","JNJ","V","WMT","DIS","HD","JPM","INTC","CVX"] # Example
+# ------------------ Combined Tickers (simplified example) ------------------
+SP500_TICKERS = ["AAPL","MSFT","GOOG","AMZN","TSLA","META","NVDA","DIS","BABA"]
+NASDAQ_TICKERS = ["ZM","ROKU","DOCU","CRWD","SNOW","NET","PTON"]
+DOW30_TICKERS = ["AAPL","MSFT","JNJ","V","WMT","DIS","HD","JPM","INTC","CVX"]
 
 ALL_TICKERS = list(set(SP500_TICKERS + NASDAQ_TICKERS + DOW30_TICKERS))
 
 # ------------------ Functions ------------------
 def fetch_stock_price(ticker):
-    """Lazy load single stock price from yfinance"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period="1d")
@@ -69,14 +50,12 @@ def fetch_stock_price(ticker):
         return None
 
 def update_prices():
-    """Update all portfolio stock prices and apply dividends"""
     for s in st.session_state.portfolio.keys():
         data = fetch_stock_price(s)
         if data:
             old_price = st.session_state.stocks[s]['price']
             st.session_state.stocks[s]['prev_price'] = old_price
             st.session_state.stocks[s]['price'] = data['price']
-            # dividends
             qty = st.session_state.portfolio[s]
             dividend_payment = qty * data['price'] * data['dividend_yield']
             st.session_state.cash += dividend_payment
@@ -129,14 +108,14 @@ def add_cash(amount):
         st.session_state.cash += amount
         st.success(f"Added ${amount:.2f} to your account!")
 
-# ------------------ Initialize stocks dict ------------------
+# ------------------ Initialize stocks ------------------
 if 'stocks' not in st.session_state:
     st.session_state.stocks = {t: fetch_stock_price(t) for t in ALL_TICKERS if fetch_stock_price(t)}
 
 update_prices()
 
 # ------------------ Streamlit UI ------------------
-st.title("📈 Realistic Stock Simulator - S&P, NASDAQ & Dow")
+st.title("📈 Realistic Stock Simulator")
 
 # Add Cash
 st.subheader("💰 Add Cash")
