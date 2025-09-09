@@ -5,7 +5,6 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # Auto-refresh every 1 second
-st_autorefresh(interval=1000, key="auto_refresh")
 
 # ------------------ Initialize Session State ------------------
 if 'cash' not in st.session_state: st.session_state.cash = 10000.0
