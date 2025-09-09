@@ -1,28 +1,6 @@
-# ------------------ Auto-install dependencies ------------------
-import subprocess
-import sys
-
-def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-try:
-    import streamlit as st
-except ModuleNotFoundError:
-    install("streamlit")
-    import streamlit as st
-
-try:
-    import yfinance as yf
-except ModuleNotFoundError:
-    install("yfinance")
-    import yfinance as yf
-
-try:
-    import pandas as pd
-except ModuleNotFoundError:
-    install("pandas")
-    import pandas as pd
-
+import streamlit as st
+import requests
+import pandas as pd
 from datetime import datetime
 
 # ------------------ Initialize Session State ------------------
@@ -31,7 +9,7 @@ if 'portfolio' not in st.session_state: st.session_state.portfolio = {}
 if 'trade_history' not in st.session_state: st.session_state.trade_history = []
 if 'portfolio_history' not in st.session_state: st.session_state.portfolio_history = []
 
-# ------------------ Combined Tickers (simplified example) ------------------
+# ------------------ Combined Tickers Example ------------------
 SP500_TICKERS = ["AAPL","MSFT","GOOG","AMZN","TSLA","META","NVDA","DIS","BABA"]
 NASDAQ_TICKERS = ["ZM","ROKU","DOCU","CRWD","SNOW","NET","PTON"]
 DOW30_TICKERS = ["AAPL","MSFT","JNJ","V","WMT","DIS","HD","JPM","INTC","CVX"]
@@ -39,12 +17,14 @@ DOW30_TICKERS = ["AAPL","MSFT","JNJ","V","WMT","DIS","HD","JPM","INTC","CVX"]
 ALL_TICKERS = list(set(SP500_TICKERS + NASDAQ_TICKERS + DOW30_TICKERS))
 
 # ------------------ Functions ------------------
-def fetch_stock_price(ticker):
+def fetch_stock_price(symbol):
+    """Get live stock price from Yahoo Finance JSON"""
     try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1d")
-        price = hist['Close'].iloc[-1]
-        dividend_yield = stock.info.get('dividendYield') or 0
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+        response = requests.get(url).json()
+        result = response['quoteResponse']['result'][0]
+        price = result.get('regularMarketPrice')
+        dividend_yield = result.get('dividendYield') or 0
         return {'price': round(price,2), 'prev_price': round(price,2), 'dividend_yield': dividend_yield}
     except:
         return None
@@ -115,7 +95,7 @@ if 'stocks' not in st.session_state:
 update_prices()
 
 # ------------------ Streamlit UI ------------------
-st.title("📈 Realistic Stock Simulator")
+st.title("📈 Realistic Stock Simulator (Yahoo Finance)")
 
 # Add Cash
 st.subheader("💰 Add Cash")
@@ -157,17 +137,6 @@ if st.button("Sell Selected"):
     for s in selected_stocks:
         sell_stock(s)
 
-st.subheader("Quick Buy/Sell All")
-cols = st.columns(2)
-with cols[0]:
-    if st.button("Buy Max All"):
-        for s in st.session_state.portfolio.keys():
-            buy_stock(s)
-with cols[1]:
-    if st.button("Sell All"):
-        for s in list(st.session_state.portfolio.keys()):
-            sell_stock(s)
-
 # Portfolio Table
 st.subheader("Your Portfolio")
 pf_data=[]
@@ -179,14 +148,3 @@ for s,q in st.session_state.portfolio.items():
     dividend_total = st.session_state.stocks[s].get('dividends',0)
     pf_data.append({"Stock":s,"Shares":q,"Value":round(val,2),"P/L":round(pl,2),"Dividend Earned":round(dividend_total,2)})
 st.table(pd.DataFrame(pf_data))
-
-# Portfolio Chart
-st.session_state.portfolio_history.append({"time":datetime.now(),"value":total_value()})
-hist_df = pd.DataFrame(st.session_state.portfolio_history)
-if not hist_df.empty and "time" in hist_df.columns:
-    hist_df = hist_df.set_index("time")
-    st.line_chart(hist_df["value"])
-
-# Trade History
-st.subheader("Trade History")
-st.table(pd.DataFrame(st.session_state.trade_history))
