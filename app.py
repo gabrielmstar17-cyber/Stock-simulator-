@@ -199,3 +199,6 @@ else:
 # Trade History
 st.subheader("Trade History")
 st.table(pd.DataFrame(st.session_state.trade_history))
+streamlit
+yfinance
+pandas
