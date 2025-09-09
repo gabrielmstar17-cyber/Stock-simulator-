@@ -3,8 +3,6 @@ import random
 import pandas as pd
 from datetime import datetime
 
-# Auto-refresh every 1 second
-
 # ------------------ Initialize Session State ------------------
 if 'cash' not in st.session_state: st.session_state.cash = 10000.0
 if 'portfolio' not in st.session_state: st.session_state.portfolio = {}
@@ -127,14 +125,15 @@ for s,q in st.session_state.portfolio.items():
     })
 st.table(pd.DataFrame(pf_data))
 
-# Portfolio chart
+# Portfolio chart (safe)
 st.session_state.portfolio_history.append({"time":datetime.now(),"value":total_value()})
-hist_df=pd.DataFrame(st.session_state.portfolio_history)
-st.line_chart(hist_df.rename(columns={"time":"index"}).set_index("time")["value"])
+hist_df = pd.DataFrame(st.session_state.portfolio_history)
+if not hist_df.empty and "time" in hist_df.columns:
+    hist_df = hist_df.set_index("time")
+    st.line_chart(hist_df["value"])
+else:
+    st.info("Portfolio chart will appear after your first trade.")
 
 # Trade history
 st.subheader("Trade History")
 st.table(pd.DataFrame(st.session_state.trade_history))
-streamlit
-pandas
-streamlit-autorefresh
