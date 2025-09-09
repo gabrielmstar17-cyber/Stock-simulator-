@@ -107,9 +107,25 @@ for s, info in st.session_state.stocks.items():
     })
 st.table(pd.DataFrame(stock_data))
 
-# ------------------ Buy Specific Stocks ------------------
+# ------------------ Search Existing Stocks ------------------
+st.subheader("🔍 Search Existing Stocks")
+search_input = st.text_input("Enter a stock abbreviation to search:").upper()
+if search_input:
+    matches = [s for s in st.session_state.stocks.keys() if search_input in s]
+    if matches:
+        selected_stock = st.selectbox("Select stock to add to your portfolio:", matches)
+        if st.button("Add Selected Stock"):
+            if selected_stock in st.session_state.portfolio:
+                st.warning(f"{selected_stock} is already in your portfolio!")
+            else:
+                st.session_state.portfolio[selected_stock] = 0
+                st.success(f"{selected_stock} added to your portfolio! You can now buy it.")
+    else:
+        st.info("No matches found in existing stocks.")
+
+# ------------------ Buy/Sell Selected Stocks ------------------
 st.subheader("Trade Selected Stocks")
-selected_stocks = st.multiselect("Select stocks to trade:", options=list(st.session_state.stocks.keys()), default=list(st.session_state.stocks.keys()))
+selected_stocks = st.multiselect("Select stocks to trade:", options=list(st.session_state.portfolio.keys()), default=list(st.session_state.portfolio.keys()))
 cash_per_stock = st.number_input("Cash to spend per selected stock:", min_value=0.0, step=100.0, value=0.0)
 
 if st.button("Buy Selected Stocks"):
@@ -125,7 +141,7 @@ st.subheader("Quick Trade: Buy/Sell All Stocks")
 cols = st.columns(2)
 with cols[0]:
     if st.button("Buy Max All Stocks"):
-        for s in st.session_state.stocks.keys():
+        for s in st.session_state.portfolio.keys():
             buy_stock(s)
 with cols[1]:
     if st.button("Sell All Stocks"):
