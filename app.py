@@ -29,14 +29,6 @@ def get_quote(symbol):
     except:
         return None
 
-def search_symbol(query):
-    try:
-        r = requests.get(f"{BASE_URL}/search?q={query}&token={FINNHUB_API_KEY}").json()
-        results = r.get("result", [])
-        return [{"symbol": x["symbol"], "desc": x.get("description", "")} for x in results]
-    except:
-        return []
-
 def get_historical_prices(symbol, days=30):
     """Fetch last `days` daily closing prices"""
     end = int(datetime.now().timestamp())
@@ -105,8 +97,8 @@ st.markdown("""
 Welcome to the Stock Simulator! Here's a quick guide:
 
 1. **Sidebar - Account & Add Cash**: See your available cash and add more funds.
-2. **Sidebar - Search Stocks**: Search for a stock by name or ticker and add it to your watchlist.
-3. **Watchlist**: Buy or sell stocks with live quotes.
+2. **Sidebar - Add Stock by Ticker**: Enter a stock ticker (e.g., AAPL) to add to your watchlist.
+3. **Watchlist**: Buy or sell stocks with live quotes and view price charts.
 4. **Portfolio**: View your holdings and total portfolio value.
 5. **Trade History**: Track all your buys and sells.
 6. **Charts**: Visualize portfolio growth and stock price history.
@@ -120,29 +112,18 @@ if st.sidebar.button("Add Cash", key="add_cash_btn"):
     st.session_state.cash += add_cash
     st.success(f"Added ${add_cash:.2f} to your balance.")
 
-# --- Sidebar: Search & Add Stocks ---
-st.sidebar.header("🔍 Search Stocks")
-query = st.sidebar.text_input("Company name or ticker")
-search_container = st.sidebar.container()
-
-if query:
-    results = search_symbol(query)
-    if results:
-        for r in results[:5]:
-            search_container.write(f"**{r['symbol']}** - {r['desc']}")
-            if search_container.button(f"Add {r['symbol']}", key=f"add_{r['symbol']}"):
-                price = get_quote(r['symbol'])
-                st.session_state.watchlist[r['symbol']] = {"name": r['desc'], "price": price}
-                st.success(f"Added {r['symbol']} at ${price:.2f}")
+# --- Sidebar: Add Stock by Ticker ---
+st.sidebar.header("🔍 Add Stock by Ticker")
+ticker = st.sidebar.text_input("Enter stock ticker (e.g., AAPL)")
+if ticker:
+    ticker = ticker.upper()
+    price = get_quote(ticker)
+    if price:
+        if st.sidebar.button(f"Add {ticker}", key=f"add_{ticker}"):
+            st.session_state.watchlist[ticker] = {"name": ticker, "price": price}
+            st.success(f"Added {ticker} at ${price:.2f}")
     else:
-        # Fallback: add directly by ticker
-        price = get_quote(query.upper())
-        if price:
-            if search_container.button(f"Add {query.upper()}", key=f"add_{query.upper()}"):
-                st.session_state.watchlist[query.upper()] = {"name": query.upper(), "price": price}
-                st.success(f"Added {query.upper()} at ${price:.2f}")
-        else:
-            search_container.info("No results found.")
+        st.sidebar.warning("Ticker not found or no price data.")
 
 # --- Watchlist ---
 st.subheader("👀 Watchlist")
@@ -161,7 +142,7 @@ if st.session_state.watchlist:
         if not hist_df.empty:
             st.line_chart(hist_df.set_index("Date")["Close"])
 else:
-    st.info("No stocks in watchlist. Search and add stocks from the sidebar.")
+    st.info("No stocks in watchlist. Add a stock using the sidebar ticker input.")
 
 # --- Portfolio ---
 st.subheader("💹 Portfolio")
