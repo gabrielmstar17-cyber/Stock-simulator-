@@ -1,57 +1,79 @@
 # app.py
 import streamlit as st
-import pandas as pd
 import requests
 from datetime import datetime
 
-# ---------- CONFIG ----------
+# ---------------- CONFIG ----------------
 ALPHA_API_KEY = "7UPR0L5QPPL0CYC0"
 
-# ---------- Load stock list ----------
-@st.cache_data
-def load_stocks():
-    try:
-        df = pd.read_csv("stocks.csv")  # <- Upload this CSV to Streamlit app folder
-        return df[['Symbol','Name']]
-    except FileNotFoundError:
-        st.error("stocks.csv not found. Upload the file to the app folder.")
-        return pd.DataFrame(columns=['Symbol','Name'])
-
-stocks_df = load_stocks()
-
-# ---------- Portfolio and Cash ----------
+# ---------------- SESSION STATE ----------------
 if "portfolio" not in st.session_state: st.session_state.portfolio = {}
 if "cash" not in st.session_state: st.session_state.cash = 0.0
 if "watchlist" not in st.session_state: st.session_state.watchlist = {}
 if "trade_history" not in st.session_state: st.session_state.trade_history = []
 
-# ---------- Functions ----------
+# ---------------- FUNCTIONS ----------------
+def search_stock(query):
+    """Search for stocks using Alpha Vantage SYMBOL_SEARCH"""
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "SYMBOL_SEARCH",
+        "keywords": query,
+        "apikey": ALPHA_API_KEY
+    }
+    r = requests.get(url, params=params, timeout=10).json()
+    matches = r.get("bestMatches", [])
+    results = []
+    for m in matches:
+        results.append({
+            "symbol": m.get("1. symbol"),
+            "name": m.get("2. name"),
+            "type": m.get("3. type"),
+            "region": m.get("4. region")
+        })
+    return results
+
 def get_stock_price(symbol):
-    try:
-        r = requests.get("https://www.alphavantage.co/query",
-                         params={"function":"GLOBAL_QUOTE",
-                                 "symbol":symbol,
-                                 "apikey":ALPHA_API_KEY},
-                         timeout=10).json()
-        price_s = r.get("Global Quote", {}).get("05. price")
-        return float(price_s) if price_s else None
-    except Exception:
-        return None
+    """Get current stock price using Alpha Vantage GLOBAL_QUOTE"""
+    url = "https://www.alphavantage.co/query"
+    params = {
+        "function": "GLOBAL_QUOTE",
+        "symbol": symbol,
+        "apikey": ALPHA_API_KEY
+    }
+    r = requests.get(url, params=params, timeout=10).json()
+    price_s = r.get("Global Quote", {}).get("05. price")
+    return float(price_s) if price_s else None
 
-def find_stock(query):
-    query = query.lower().strip()
-    # ticker match
-    result = stocks_df[stocks_df['Symbol'].str.contains(query.upper(), case=False)]
-    if not result.empty: return result
-    # company name match
-    result = stocks_df[stocks_df['Name'].str.contains(query, case=False)]
-    return result
+def buy_stock(symbol, shares, price):
+    st.session_state.cash -= shares * price
+    st.session_state.portfolio[symbol] = st.session_state.portfolio.get(symbol, 0) + shares
+    st.session_state.trade_history.append({
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "action": "BUY",
+        "symbol": symbol,
+        "shares": shares,
+        "price": price
+    })
 
-# ---------- Streamlit UI ----------
-st.set_page_config(page_title="Stock Simulator", layout="wide")
-st.title("📈 Stock Simulator")
+def sell_stock(symbol, shares, price):
+    st.session_state.cash += shares * price
+    st.session_state.portfolio[symbol] -= shares
+    st.session_state.trade_history.append({
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "action": "SELL",
+        "symbol": symbol,
+        "shares": shares,
+        "price": price
+    })
+    if st.session_state.portfolio[symbol] <= 0:
+        del st.session_state.portfolio[symbol]
 
-# Sidebar: Cash
+# ---------------- STREAMLIT UI ----------------
+st.set_page_config(page_title="Brokerage Simulator", layout="wide")
+st.title("📈 Brokerage Simulator")
+
+# Sidebar: Cash management
 with st.sidebar:
     st.header("Cash Management")
     add_cash = st.number_input("Add cash", min_value=0.0, step=10.0)
@@ -59,87 +81,74 @@ with st.sidebar:
         st.session_state.cash += add_cash
         st.success(f"Added ${add_cash:.2f} to cash")
 
-# Search and add stock
+# Stock search
 st.header("Search & Add Stock")
-search_term = st.text_input("Ticker or Company Name")
+query = st.text_input("Enter ticker or company name")
 if st.button("Search"):
-    if not search_term:
-        st.info("Enter a ticker or company name")
-    else:
-        matches = find_stock(search_term)
-        if matches.empty:
-            st.warning("No matching stock found")
-        elif len(matches)==1:
-            sym = matches.iloc[0]['Symbol']
-            name = matches.iloc[0]['Name']
-            price = get_stock_price(sym)
-            st.write(f"**{name} ({sym})** - Current Price: ${price if price else 'N/A'}")
-            if st.button(f"Add {sym} to watchlist"):
-                st.session_state.watchlist[sym] = {"name": name, "last_price": price}
-                st.success(f"Added {sym} to watchlist")
+    if query:
+        matches = search_stock(query)
+        if not matches:
+            st.warning("No stocks found")
         else:
-            options = [f"{r['Symbol']} - {r['Name']}" for idx,r in matches.iterrows()]
-            choice = st.selectbox("Multiple matches found:", options)
+            options = [f"{m['symbol']} - {m['name']} ({m['region']})" for m in matches]
+            choice = st.selectbox("Select a stock", options)
             if choice:
-                sym = choice.split(" - ")[0]
-                name = choice.split(" - ")[1]
-                price = get_stock_price(sym)
-                st.write(f"**{name} ({sym})** - Current Price: ${price if price else 'N/A'}")
-                if st.button(f"Add {sym} to watchlist", key=f"add_{sym}"):
-                    st.session_state.watchlist[sym] = {"name": name, "last_price": price}
-                    st.success(f"Added {sym} to watchlist")
+                symbol = choice.split(" - ")[0]
+                name = choice.split(" - ")[1].split(" (")[0]
+                price = get_stock_price(symbol)
+                st.write(f"**{name} ({symbol})**")
+                st.write(f"Current Price: ${price if price else 'N/A'}")
+                buy_amt = st.number_input("Cash to spend", min_value=0.0, step=10.0, key=f"buy_{symbol}")
+                if st.button("Buy", key=f"btnbuy_{symbol}"):
+                    if price is None:
+                        st.error("Price unavailable")
+                    else:
+                        shares = int(buy_amt // price)
+                        if shares <= 0:
+                            st.warning("Not enough cash to buy any shares")
+                        else:
+                            buy_stock(symbol, shares, price)
+                            st.success(f"Bought {shares} shares of {symbol} at ${price:.2f}")
+                if st.button("Add to Watchlist", key=f"watch_{symbol}"):
+                    st.session_state.watchlist[symbol] = {"name": name, "last_price": price}
+                    st.success(f"Added {symbol} to watchlist")
 
-# Watchlist & Trading
+# Watchlist & portfolio
 st.header("Watchlist & Portfolio")
 if st.session_state.watchlist:
-    for sym, info in st.session_state.watchlist.items():
-        st.subheader(f"{sym} - {info['name']}")
-        price = get_stock_price(sym)
+    for symbol, info in st.session_state.watchlist.items():
+        st.subheader(f"{symbol} - {info['name']}")
+        price = get_stock_price(symbol)
         st.write(f"Price: ${price if price else 'N/A'}")
-        buy_amt = st.number_input(f"Cash to buy {sym}", min_value=0.0, step=10.0, key=f"buy_{sym}")
-        if st.button(f"Buy {sym}", key=f"btnbuy_{sym}"):
-            if price is None:
-                st.error("Price unavailable")
-            else:
+        buy_amt = st.number_input(f"Cash to buy {symbol}", min_value=0.0, step=10.0, key=f"watch_buy_{symbol}")
+        if st.button(f"Buy {symbol}", key=f"btn_watch_buy_{symbol}"):
+            if price:
                 shares = int(buy_amt // price)
-                if shares <= 0:
-                    st.warning("Not enough cash")
-                else:
-                    st.session_state.cash -= shares*price
-                    st.session_state.portfolio[sym] = st.session_state.portfolio.get(sym,0)+shares
-                    st.session_state.trade_history.append({"time": datetime.now().isoformat(),
-                                                           "action":"BUY",
-                                                           "symbol":sym,
-                                                           "shares":shares,
-                                                           "price":price})
-                    st.success(f"Bought {shares} of {sym} at ${price:.2f}")
-        if st.button(f"Sell All {sym}", key=f"btnsell_{sym}"):
-            shares = st.session_state.portfolio.get(sym,0)
-            if shares <= 0:
-                st.warning("No shares to sell")
-            else:
-                price = get_stock_price(sym)
-                proceeds = shares*price
-                st.session_state.cash += proceeds
-                st.session_state.portfolio[sym] = 0
-                st.session_state.trade_history.append({"time": datetime.now().isoformat(),
-                                                       "action":"SELL",
-                                                       "symbol":sym,
-                                                       "shares":shares,
-                                                       "price":price})
-                st.success(f"Sold {shares} of {sym} at ${price:.2f}")
-else:
-    st.info("Watchlist empty")
+                if shares > 0:
+                    buy_stock(symbol, shares, price)
+                    st.success(f"Bought {shares} shares of {symbol} at ${price:.2f}")
+        if st.button(f"Sell All {symbol}", key=f"btn_watch_sell_{symbol}"):
+            shares = st.session_state.portfolio.get(symbol,0)
+            if shares > 0:
+                sell_stock(symbol, shares, price)
+                st.success(f"Sold {shares} shares of {symbol} at ${price:.2f}")
 
 # Portfolio summary
 st.header("Portfolio Summary")
-st.metric("Cash", f"${st.session_state.cash:,.2f}")
+st.metric("Cash Balance", f"${st.session_state.cash:,.2f}")
 if st.session_state.portfolio:
-    df_port = pd.DataFrame([{"Symbol":k,"Shares":v} for k,v in st.session_state.portfolio.items()])
-    st.table(df_port)
-
-st.subheader("Trade History")
-if st.session_state.trade_history:
-    st.table(pd.DataFrame(st.session_state.trade_history))
+    portfolio_data = []
+    for sym, shares in st.session_state.portfolio.items():
+        price = get_stock_price(sym)
+        value = shares*price if price else 0
+        portfolio_data.append({"Symbol": sym, "Shares": shares, "Price": price, "Value": value})
+    st.table(portfolio_data)
 else:
-    st.info("No trades yet.")
+    st.info("No stocks in portfolio")
+
+# Trade history
+st.header("Trade History")
+if st.session_state.trade_history:
+    st.table(st.session_state.trade_history)
+else:
+    st.info("No trades yet")
